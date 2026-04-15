@@ -11,11 +11,8 @@ from typing import List
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
-# Render se Credentials uthana
-CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
-
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'}
+# Render se API Key uthana
+API_KEY = os.getenv('GOOGLE_API_KEY')
 
 class DriveLinkRequest(BaseModel):
     drive_link: str
@@ -25,7 +22,6 @@ class FolderItem(BaseModel):
     name: str
     type: str
     path: str
-    parent_folder: str = ""
 
 def extract_folder_id(drive_link: str) -> str:
     patterns = [r'folders/([a-zA-Z0-9-_]+)', r'id=([a-zA-Z0-9-_]+)']
@@ -38,11 +34,8 @@ def extract_folder_id(drive_link: str) -> str:
 async def get_folder_structure(request: DriveLinkRequest):
     try:
         folder_id = extract_folder_id(request.drive_link)
-        # Google Drive API se files list karna
-        url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={CLIENT_SECRET}"
-        
-        # Note: Agar ye simple GET kaam na kare, toh humein OAuth use karna padega.
-        # Par abhi ke liye hum public folder access fix kar rahe hain.
+        # API Key use karke files fetch karna
+        url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={API_KEY}"
         resp = http_requests.get(url)
         data = resp.json()
         
@@ -65,8 +58,8 @@ async def get_folder_structure(request: DriveLinkRequest):
 
 @api_router.get("/drive/image/{file_id}")
 async def get_drive_image(file_id: str):
-    # Direct download proxy
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={CLIENT_SECRET}"
+    # API Key use karke image stream karna
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
     resp = http_requests.get(url)
     return StreamingResponse(io.BytesIO(resp.content), media_type='image/jpeg')
 
