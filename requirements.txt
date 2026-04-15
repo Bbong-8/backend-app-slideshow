@@ -2,4 +2,3 @@ fastapi
 uvicorn
 python-dotenv
 requests
-motor
