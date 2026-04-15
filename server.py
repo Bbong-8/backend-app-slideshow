@@ -40,9 +40,9 @@ async def get_folder_structure(request: DriveLinkRequest):
             raise HTTPException(status_code=400, detail=data['error']['message'])
 
         items = []
-        # Pehle ek dummy 'Photos' folder add karte hain jo Frontend ko chahiye
+        # Dummy "All Photos" folder for Frontend compatibility
         items.append({
-            "id": "dummy_root",
+            "id": "all_photos_root",
             "name": "All Photos",
             "type": "folder",
             "path": "All Photos"
@@ -50,18 +50,16 @@ async def get_folder_structure(request: DriveLinkRequest):
 
         for file in data.get('files', []):
             mime = file.get('mimeType', '').lower()
+            name = file['name'].lower()
             
             if 'folder' in mime:
-                # Folders ko seedha unke naam se bhej rahe hain
                 items.append({
                     "id": file['id'],
                     "name": file['name'],
                     "type": "folder",
                     "path": file['name']
                 })
-            elif 'image/' in mime or any(ext in file['name'].lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                # IMPORTANT: Image ka path 'All Photos/filename' hona chahiye 
-                # taaki App.js ise 'All Photos' folder ke andar dikhaye
+            elif 'image' in mime or any(name.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.jfif']):
                 items.append({
                     "id": file['id'],
                     "name": file['name'],
