@@ -32,7 +32,6 @@ def extract_folder_id(link: str) -> str:
 async def get_folder_structure(request: DriveLinkRequest):
     try:
         folder_id = extract_folder_id(request.drive_link)
-        # Scan everything inside the folder
         url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={API_KEY}"
         resp = http_requests.get(url)
         data = resp.json()
@@ -41,39 +40,38 @@ async def get_folder_structure(request: DriveLinkRequest):
             raise HTTPException(status_code=400, detail=data['error']['message'])
 
         items = []
+        # Pehle ek dummy 'Photos' folder add karte hain jo Frontend ko chahiye
+        items.append({
+            "id": "dummy_root",
+            "name": "All Photos",
+            "type": "folder",
+            "path": "All Photos"
+        })
+
         for file in data.get('files', []):
             mime = file.get('mimeType', '').lower()
             
             if 'folder' in mime:
-                item_type = 'folder'
-                # Folder ka path uska naam hi rakho
-                file_path = file['name']
-            elif 'image/' in mime or any(ext in mime for ext in ['jpg', 'jpeg', 'png', 'webp']):
-                item_type = 'image'
-                # IMPORTANT: Emergent needs path as "folder_name/file_name"
-                # Hum fake path bhejenge: "Main/filename" taki frontend ise Main folder mein dikhaye
-                file_path = f"Main/{file['name']}"
-            else:
-                continue
-
-            items.append({
-                "id": file['id'],
-                "name": file['name'],
-                "type": item_type,
-                "path": file_path
-            })
-
-        # Ek dummy "Main" folder add karo jisme saari images dikhein
-        items.append({
-            "id": "root_dummy",
-            "name": "Main",
-            "type": "folder",
-            "path": "Main"
-        })
+                # Folders ko seedha unke naam se bhej rahe hain
+                items.append({
+                    "id": file['id'],
+                    "name": file['name'],
+                    "type": "folder",
+                    "path": file['name']
+                })
+            elif 'image/' in mime or any(ext in file['name'].lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                # IMPORTANT: Image ka path 'All Photos/filename' hona chahiye 
+                # taaki App.js ise 'All Photos' folder ke andar dikhaye
+                items.append({
+                    "id": file['id'],
+                    "name": file['name'],
+                    "type": "image",
+                    "path": f"All Photos/{file['name']}"
+                })
 
         return {
             "items": items,
-            "folder_name": "Google Drive",
+            "folder_name": "Drive Slideshow",
             "total_images": len([i for i in items if i['type'] == 'image']),
             "total_folders": len([i for i in items if i['type'] == 'folder'])
         }
