@@ -22,7 +22,7 @@ def extract_folder_id(link: str) -> str:
 async def get_folder_structure(request: DriveLinkRequest):
     try:
         folder_id = extract_folder_id(request.drive_link)
-        # Scan everything inside the folder
+        # Scan everything: folder + files
         url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={API_KEY}"
         resp = http_requests.get(url)
         data = resp.json()
@@ -34,26 +34,34 @@ async def get_folder_structure(request: DriveLinkRequest):
         for file in data.get('files', []):
             mime = file.get('mimeType', '').lower()
             
-            # 1. Check if it's a folder
             if 'folder' in mime:
-                t = 'folder'
-            # 2. Check if it's an image (JPG, PNG, WebP, etc.)
-            elif any(ext in mime for ext in ['image/', 'jpg', 'jpeg', 'png', 'webp']):
-                t = 'image'
+                item_type = 'folder'
+            elif 'image/' in mime or any(ext in mime for ext in ['jpg', 'jpeg', 'png', 'webp']):
+                item_type = 'image'
             else:
                 continue
 
+            # CRITICAL: Emergent needs 'path' to be 'folder_name/file_name' 
+            # for the logic 'parentPath = item.path.substring(0, item.path.lastIndexOf('/'))' to work.
             items.append({
                 "id": file['id'],
                 "name": file['name'],
-                "type": t,
-                "path": file['name']
+                "type": item_type,
+                "path": f"drive_folder/{file['name']}" if item_type == 'image' else file['name']
             })
 
-        # Frontend ko data wahi chahiye jo use samajh aaye
+        # Add a dummy top-level folder if images are loose in the main folder
+        if any(i['type'] == 'image' for i in items):
+            items.append({
+                "id": folder_id,
+                "name": "drive_folder",
+                "type": "folder",
+                "path": "drive_folder"
+            })
+
         return {
             "items": items,
-            "folder_name": "Drive Folder",
+            "folder_name": "Google Drive",
             "total_images": len([i for i in items if i['type'] == 'image']),
             "total_folders": len([i for i in items if i['type'] == 'folder'])
         }
