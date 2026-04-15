@@ -5,7 +5,19 @@ import os, io, re, requests as http_requests
 from pydantic import BaseModel
 
 app = FastAPI()
+
+# --- Health Check Routes (Ye Render ke liye hain) ---
+@app.get("/")
+async def root():
+    return {"message": "Server is running"}
+
 api_router = APIRouter(prefix="/api")
+
+@api_router.get("/")
+async def api_root():
+    return {"status": "API is active"}
+# ---------------------------------------------------
+
 API_KEY = os.getenv('GOOGLE_API_KEY')
 
 class DriveLinkRequest(BaseModel):
@@ -22,7 +34,6 @@ def extract_folder_id(link: str) -> str:
 async def get_folder_structure(request: DriveLinkRequest):
     try:
         folder_id = extract_folder_id(request.drive_link)
-        # Scan everything: folder + files
         url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={API_KEY}"
         resp = http_requests.get(url)
         data = resp.json()
@@ -33,31 +44,24 @@ async def get_folder_structure(request: DriveLinkRequest):
         items = []
         for file in data.get('files', []):
             mime = file.get('mimeType', '').lower()
-            
             if 'folder' in mime:
-                item_type = 'folder'
+                t = 'folder'
             elif 'image/' in mime or any(ext in mime for ext in ['jpg', 'jpeg', 'png', 'webp']):
-                item_type = 'image'
+                t = 'image'
             else:
                 continue
 
-            # CRITICAL: Emergent needs 'path' to be 'folder_name/file_name' 
-            # for the logic 'parentPath = item.path.substring(0, item.path.lastIndexOf('/'))' to work.
+            # Path logic specifically for Emergent's folder tree
             items.append({
                 "id": file['id'],
                 "name": file['name'],
-                "type": item_type,
-                "path": f"drive_folder/{file['name']}" if item_type == 'image' else file['name']
+                "type": t,
+                "path": f"Google_Drive/{file['name']}" if t == 'image' else file['name']
             })
 
-        # Add a dummy top-level folder if images are loose in the main folder
+        # dummy folder if images are at root level
         if any(i['type'] == 'image' for i in items):
-            items.append({
-                "id": folder_id,
-                "name": "drive_folder",
-                "type": "folder",
-                "path": "drive_folder"
-            })
+            items.append({"id": folder_id, "name": "Google_Drive", "type": "folder", "path": "Google_Drive"})
 
         return {
             "items": items,
