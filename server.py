@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+# Health check root
 @app.get("/")
 async def root():
     return {"message": "Server is running"}
@@ -32,6 +33,7 @@ def extract_folder_id(link: str) -> str:
 async def get_folder_structure(request: DriveLinkRequest):
     try:
         folder_id = extract_folder_id(request.drive_link)
+        # Google Drive API call to get files in the folder
         url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={API_KEY}"
         resp = http_requests.get(url)
         data = resp.json()
@@ -40,7 +42,7 @@ async def get_folder_structure(request: DriveLinkRequest):
             raise HTTPException(status_code=400, detail=data['error']['message'])
 
         items = []
-        # Dummy "All Photos" folder for Frontend compatibility
+        # Dummy "All Photos" root for UI compatibility
         items.append({
             "id": "all_photos_root",
             "name": "All Photos",
@@ -50,8 +52,9 @@ async def get_folder_structure(request: DriveLinkRequest):
 
         for file in data.get('files', []):
             mime = file.get('mimeType', '').lower()
-            name = file['name'].lower()
+            name = file['name']
             
+            # 1. Check if it's a folder
             if 'folder' in mime:
                 items.append({
                     "id": file['id'],
@@ -59,7 +62,9 @@ async def get_folder_structure(request: DriveLinkRequest):
                     "type": "folder",
                     "path": file['name']
                 })
-            elif 'image' in mime or any(name.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.jfif']):
+            
+            # 2. Check if it's an image (Case-insensitive check for extensions)
+            elif 'image' in mime or any(name.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.jfif', '.heic']):
                 items.append({
                     "id": file['id'],
                     "name": file['name'],
