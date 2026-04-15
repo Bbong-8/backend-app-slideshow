@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# Health check root
 @app.get("/")
 async def root():
     return {"message": "Server is running"}
@@ -33,8 +32,11 @@ def extract_folder_id(link: str) -> str:
 async def get_folder_structure(request: DriveLinkRequest):
     try:
         folder_id = extract_folder_id(request.drive_link)
-        # Google Drive API call to get files in the folder
-        url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={API_KEY}"
+        
+        # FIXED: query to find ALL files inside that folder, including those in subfolders
+        # Using 'trashed = false' and checking mimeType
+        url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&key={API_KEY}"
+        
         resp = http_requests.get(url)
         data = resp.json()
         
@@ -42,29 +44,39 @@ async def get_folder_structure(request: DriveLinkRequest):
             raise HTTPException(status_code=400, detail=data['error']['message'])
 
         items = []
-        # Dummy "All Photos" root for UI compatibility
-        items.append({
-            "id": "all_photos_root",
-            "name": "All Photos",
-            "type": "folder",
-            "path": "All Photos"
-        })
+        # Main root for the frontend
+        items.append({"id": "all_photos_root", "name": "All Photos", "type": "folder", "path": "All Photos"})
 
         for file in data.get('files', []):
             mime = file.get('mimeType', '').lower()
             name = file['name']
             
-            # 1. Check if it's a folder
             if 'folder' in mime:
+                # Add sub-folder to the list
                 items.append({
                     "id": file['id'],
                     "name": file['name'],
                     "type": "folder",
                     "path": file['name']
                 })
-            
-            # 2. Check if it's an image (Case-insensitive check for extensions)
-            elif 'image' in mime or any(name.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.jfif', '.heic']):
+                
+                # AB ASLI KAAM: Is sub-folder ke andar ki photos bhi dhoondo
+                sub_url = f"https://www.googleapis.com/drive/v3/files?q='{file['id']}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&key={API_KEY}"
+                sub_resp = http_requests.get(sub_url)
+                sub_data = sub_resp.json()
+                
+                for sub_file in sub_data.get('files', []):
+                    sub_mime = sub_file.get('mimeType', '').lower()
+                    sub_name = sub_file['name']
+                    if 'image' in sub_mime or any(sub_name.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                        items.append({
+                            "id": sub_file['id'],
+                            "name": sub_file['name'],
+                            "type": "image",
+                            "path": f"{file['name']}/{sub_file['name']}"
+                        })
+
+            elif 'image' in mime or any(name.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp']):
                 items.append({
                     "id": file['id'],
                     "name": file['name'],
@@ -88,4 +100,4 @@ async def get_drive_image(file_id: str):
     return StreamingResponse(io.BytesIO(resp.content), media_type='image/jpeg')
 
 app.include_router(api_router)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]) 
