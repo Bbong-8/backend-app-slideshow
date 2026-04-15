@@ -3,7 +3,6 @@ from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 import os, io, re, requests as http_requests
 from pydantic import BaseModel
-from typing import List
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -23,8 +22,7 @@ def extract_folder_id(link: str) -> str:
 async def get_folder_structure(request: DriveLinkRequest):
     try:
         folder_id = extract_folder_id(request.drive_link)
-        
-        # Google API Query: Folder ke andar ki saari files aur sub-folders uthao
+        # Scan everything inside the folder
         url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents&fields=files(id,name,mimeType)&key={API_KEY}"
         resp = http_requests.get(url)
         data = resp.json()
@@ -34,23 +32,25 @@ async def get_folder_structure(request: DriveLinkRequest):
 
         items = []
         for file in data.get('files', []):
-            mime = file.get('mimeType', '')
+            mime = file.get('mimeType', '').lower()
             
-            # Simple Logic: Agar mimeType mein 'folder' hai toh folder, 'image' hai toh image
-            if 'vnd.google-apps.folder' in mime:
-                item_type = 'folder'
-            elif 'image/' in mime:
-                item_type = 'image'
+            # 1. Check if it's a folder
+            if 'folder' in mime:
+                t = 'folder'
+            # 2. Check if it's an image (JPG, PNG, WebP, etc.)
+            elif any(ext in mime for ext in ['image/', 'jpg', 'jpeg', 'png', 'webp']):
+                t = 'image'
             else:
-                continue # Baaki files (pdf, docs) ko skip karo
+                continue
 
             items.append({
                 "id": file['id'],
                 "name": file['name'],
-                "type": item_type,
+                "type": t,
                 "path": file['name']
             })
 
+        # Frontend ko data wahi chahiye jo use samajh aaye
         return {
             "items": items,
             "folder_name": "Drive Folder",
@@ -62,7 +62,6 @@ async def get_folder_structure(request: DriveLinkRequest):
 
 @api_router.get("/drive/image/{file_id}")
 async def get_drive_image(file_id: str):
-    # Direct Media Stream
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
     resp = http_requests.get(url, stream=True)
     return StreamingResponse(io.BytesIO(resp.content), media_type='image/jpeg')
