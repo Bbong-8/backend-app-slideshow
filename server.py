@@ -12,10 +12,6 @@ async def root():
 
 api_router = APIRouter(prefix="/api")
 
-@api_router.get("/")
-async def api_root():
-    return {"status": "API is active"}
-
 API_KEY = os.getenv('GOOGLE_API_KEY')
 
 class DriveLinkRequest(BaseModel):
@@ -28,61 +24,57 @@ def extract_folder_id(link: str) -> str:
         if match: return match.group(1)
     return link.strip()
 
+# --- RECURSIVE FUNCTION: Har kamre ke andar ka saaman nikaalo ---
+def fetch_files_recursive(folder_id, current_path, api_key):
+    items = []
+    # Google se files ki list maango
+    url = f"https://www.googleapis.com/drive/v3/files?q='{folder_id}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&key={api_key}"
+    
+    try:
+        resp = http_requests.get(url).json()
+        files = resp.get('files', [])
+        
+        for f in files:
+            mime = f.get('mimeType', '').lower()
+            name = f['name']
+            
+            if 'folder' in mime:
+                # 1. Folder ka naam register karo (jaise 'ATP - COURT ROAD')
+                new_path = f"{current_path} > {name}" if current_path else name
+                items.append({
+                    "id": f['id'],
+                    "name": name,
+                    "type": "folder",
+                    "path": new_path
+                })
+                # 2. Iske andar phir se ghuso (Recursion)
+                items.extend(fetch_files_recursive(f['id'], new_path, api_key))
+            
+            elif 'image' in mime or any(name.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                # 3. Image mil gayi!
+                items.append({
+                    "id": f['id'],
+                    "name": name,
+                    "type": "image",
+                    "path": f"{current_path}/{name}" if current_path else f"Uncategorized/{name}"
+                })
+    except Exception as e:
+        print(f"Error: {e}")
+        
+    return items
+
 @api_router.post("/drive/folder")
 async def get_folder_structure(request: DriveLinkRequest):
     try:
-        main_folder_id = extract_folder_id(request.drive_link)
-        all_items = []
+        main_id = extract_folder_id(request.drive_link)
+        # Gehrayi tak scanning shuru
+        all_data = fetch_files_recursive(main_id, "", API_KEY)
         
-        # 1. Pehle saare sub-folders dhoondo jo main folder ke andar hain
-        url = f"https://www.googleapis.com/drive/v3/files?q='{main_folder_id}'+in+parents+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id,name)&key={API_KEY}"
-        folders_resp = http_requests.get(url).json()
-        
-        if 'error' in folders_resp:
-            raise HTTPException(status_code=400, detail=folders_resp['error']['message'])
-
-        # "All Photos" dummy folder for UI
-        all_items.append({"id": "all_photos_root", "name": "All Photos", "type": "folder", "path": "All Photos"})
-
-        # 2. Har folder ke andar ghuso aur images nikaalo
-        for folder in folders_resp.get('files', []):
-            folder_name = folder['name']
-            all_items.append({"id": folder['id'], "name": folder_name, "type": "folder", "path": folder_name})
-            
-            # Sub-folder ki images dhoondo
-            img_url = f"https://www.googleapis.com/drive/v3/files?q='{folder['id']}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&key={API_KEY}"
-            imgs_resp = http_requests.get(img_url).json()
-            
-            for f in imgs_resp.get('files', []):
-                mime = f.get('mimeType', '').lower()
-                name = f['name'].lower()
-                if 'image' in mime or any(name.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.jfif']):
-                    all_items.append({
-                        "id": f['id'],
-                        "name": f['name'],
-                        "type": "image",
-                        "path": f"{folder_name}/{f['name']}"
-                    })
-
-        # 3. Main root (agar wahan bhi kuch photos hain)
-        root_img_url = f"https://www.googleapis.com/drive/v3/files?q='{main_folder_id}'+in+parents+and+mimeType!='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id,name,mimeType)&key={API_KEY}"
-        root_imgs = http_requests.get(root_img_url).json()
-        for f in root_imgs.get('files', []):
-            mime = f.get('mimeType', '').lower()
-            name = f['name'].lower()
-            if 'image' in mime or any(name.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                all_items.append({
-                    "id": f['id'],
-                    "name": f['name'],
-                    "type": "image",
-                    "path": f"All Photos/{f['name']}"
-                })
-
         return {
-            "items": all_items,
-            "folder_name": "Drive Slideshow",
-            "total_images": len([i for i in all_items if i['type'] == 'image']),
-            "total_folders": len([i for i in all_items if i['type'] == 'folder'])
+            "items": all_data,
+            "folder_name": "Kushal's NSO Gallery",
+            "total_images": len([i for i in all_data if i['type'] == 'image']),
+            "total_folders": len([i for i in all_data if i['type'] == 'folder'])
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
