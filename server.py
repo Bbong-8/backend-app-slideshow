@@ -3,12 +3,13 @@ from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 import os, io, re, requests as http_requests
 from pydantic import BaseModel
+from PIL import Image  # Compression ke liye
 
 app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"message": "Server is running"}
+    return {"message": "Server is running with Compression Engine"}
 
 api_router = APIRouter(prefix="/api")
 
@@ -52,11 +53,37 @@ async def get_folder_structure(request: DriveLinkRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# 🔥 UPDATED: Image Compression Logic Yahan Hai
 @api_router.get("/drive/image/{file_id}")
 async def get_drive_image(file_id: str):
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
-    resp = http_requests.get(url, stream=True)
-    return StreamingResponse(io.BytesIO(resp.content), media_type='image/jpeg')
+    try:
+        url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
+        resp = http_requests.get(url)
+        
+        # Original photo ko memory mein load karo
+        img = Image.open(io.BytesIO(resp.content))
+        
+        # 1. Resize: Agar photo 1200px se badi hai toh choti karo (Loading speed badhegi)
+        if img.width > 1200:
+            ratio = 1200 / float(img.width)
+            new_height = int(float(img.height) * float(ratio))
+            img = img.resize((1200, new_height), Image.Resampling.LANCZOS)
+        
+        # 2. Format: JPEG mein convert karo taaki size kam ho jaye
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+            
+        img_io = io.BytesIO()
+        # 3. Quality: 60% quality par save karo (Isse size 90% kam ho jati hai)
+        img.save(img_io, 'JPEG', quality=60, optimize=True)
+        img_io.seek(0)
+        
+        return StreamingResponse(img_io, media_type='image/jpeg')
+    except Exception as e:
+        # Agar compression fail ho jaye toh original bhej do backup ke liye
+        url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
+        resp = http_requests.get(url, stream=True)
+        return StreamingResponse(io.BytesIO(resp.content), media_type='image/jpeg')
 
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
